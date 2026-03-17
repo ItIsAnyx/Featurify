@@ -14,6 +14,6 @@ settings = Settings()
 
 def validate_key(backend_key: str):
     if not backend_key:
-        raise HTTPException(status_code=500, detail="Server misconfiguration: AI_API_KEY is not set")
+        raise HTTPException(status_code=401, detail="Server misconfiguration: BACKEND_KEY is not set")
     if backend_key != settings.BACKEND_KEY:
-        raise HTTPException(status_code=403, detail="Forbidden: Backend key is invalid")
+        raise HTTPException(status_code=403, detail="Forbidden: BACKEND_KEY is invalid")
