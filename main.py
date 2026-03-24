@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Header, UploadFile, File
+from fastapi import FastAPI, HTTPException, Header, UploadFile, File, Form
 from openai import OpenAI
 from config import settings, validate_key
 from pydantic import BaseModel
@@ -43,9 +43,14 @@ async def call_llm(context: list) -> JSONOutput:
 
 # Простое получение ответа на вопрос пользователя с контекстом
 @app.post("/api/response", response_model=JSONOutput)
-async def get_response(payload: BaseRequest, backend_key: str = Header(..., alias="AI_BACKEND_KEY")) -> JSONOutput:
+async def get_response(payload: str = Form(...), file: UploadFile = File(None), backend_key: str = Header(..., alias="AI_BACKEND_KEY")) -> JSONOutput:
     validate_key(backend_key)
-    system_prompt = """You are an ML expert who comes up with feature engineering. Return ONLY valid JSON in this format:
+    payload_dict = json.loads(payload)
+    payload = BaseRequest(**payload_dict)
+
+    system_prompt = """You are an ML expert who comes up with feature engineering.
+    You may receive Dataset Description (JSON) and User Request. Use BOTH for your recommendations.
+    Return ONLY valid JSON in this format:
     {
       "analysis": "string",
       "remove_features": ["string"],
@@ -61,22 +66,20 @@ async def get_response(payload: BaseRequest, backend_key: str = Header(..., alia
         context = [{"role": "system", "content": system_prompt},
                    {"role": "user", "content": payload.message}]
 
+    if file:
+        try:
+            df = read_dataset(file.file)
+            info = info_to_str(df)
+            file_info = {
+                "filename": file.filename,
+                "df_info": info
+            }
+            context.insert(1, {"role": "system", "content": f"Dataset info:\n{json.dumps(file_info)}"})
+            print(context)
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=str(e))
     try:
         result = await call_llm(context)
         return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Generation Error: {str(e)}")
-
-# Загрузка и предобработка датасета
-@app.post("/api/load", response_model=LoadFile)
-async def load_dataset(file: UploadFile = File(...)):
-    try:
-        df = read_dataset(file.file)
-        info = info_to_str(df)
-        return {
-            "filename": file.filename,
-            "df_info": info
-        }
-
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))

@@ -20,7 +20,6 @@ def info_to_str(df: pd.DataFrame) -> dict:
                 "null": int(df[col].isna().sum()),
                 "unique": int(df[col].nunique()),
             }
-            print(df[col].dtype)
             if str(df[col].dtype) in {"int64", "float64"}:
                 columns_info[col]["mean"] = float(df[col].mean().round(4))
                 columns_info[col]["min"] = float(df[col].min())
@@ -29,7 +28,8 @@ def info_to_str(df: pd.DataFrame) -> dict:
 
         result = {
             "total_rows": total_rows,
-            "columns": columns_info
+            "columns": columns_info,
+            "example_strings": df.head(5).to_dict(orient="records")
         }
         return result
 
