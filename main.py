@@ -1,9 +1,9 @@
-import pandas as pd
-from fastapi import FastAPI, HTTPException, Header
+from fastapi import FastAPI, HTTPException, Header, UploadFile, File
 from openai import OpenAI
 from config import settings, validate_key
 from pydantic import BaseModel
 from typing import List, Dict
+from dataset import read_dataset, info_to_str
 import json
 
 class BaseRequest(BaseModel):
@@ -16,6 +16,10 @@ class JSONOutput(BaseModel):
     transform_features: list[str]
     create_features: list[str]
     recommended_models: list[str]
+
+class LoadFile(BaseModel):
+    filename: str
+    df_info: dict
 
 app = FastAPI(title=settings.APP_NAME)
 client = OpenAI(api_key=settings.AI_API_KEY, base_url="https://api.deepseek.com")
@@ -62,3 +66,17 @@ async def get_response(payload: BaseRequest, backend_key: str = Header(..., alia
         return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Generation Error: {str(e)}")
+
+# Загрузка и предобработка датасета
+@app.post("/api/load", response_model=LoadFile)
+async def load_dataset(file: UploadFile = File(...)):
+    try:
+        df = read_dataset(file.file)
+        info = info_to_str(df)
+        return {
+            "filename": file.filename,
+            "df_info": info
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
