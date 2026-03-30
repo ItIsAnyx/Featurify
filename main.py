@@ -16,6 +16,9 @@ class JSONOutput(BaseModel):
     transform_features: list[str]
     create_features: list[str]
     recommended_models: list[str]
+    prompt_tokens: int
+    completion_tokens: int
+    total_tokens: int
 
 class LoadFile(BaseModel):
     filename: str
@@ -36,12 +39,28 @@ async def call_llm(context: list) -> JSONOutput:
         content = out.choices[0].message.content
         content = content.replace("```json", "").replace("```", "")
         parsed = json.loads(content)
+        usage = getattr(out, "usage", None)
+        prompt_tokens = 0
+        completion_tokens = 0
+        total_tokens = 0
+
+        if usage:
+            prompt_tokens = getattr(usage, "prompt_tokens", 0)
+            completion_tokens = getattr(usage, "completion_tokens", 0)
+            total_tokens = getattr(usage, "total_tokens", 0)
+
+        parsed.update({
+            "prompt_tokens": prompt_tokens,
+            "completion_tokens": completion_tokens,
+            "total_tokens": total_tokens
+        })
+
         return JSONOutput(**parsed)
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-# Простое получение ответа на вопрос пользователя с контекстом
+# Получение ответа на вопрос пользователя с контекстом
 @app.post("/api/response", response_model=JSONOutput)
 async def get_response(payload: str = Form(...), file: UploadFile = File(None), backend_key: str = Header(..., alias="AI_BACKEND_KEY")) -> JSONOutput:
     validate_key(backend_key)
