@@ -4,11 +4,14 @@ from config import settings, validate_key
 from pydantic import BaseModel
 from typing import List, Dict
 from dataset import read_dataset, info_to_str
+from retriever.retriever import SemanticRetriever
+from retriever.retriever_docs import documents
 import json
 
 class BaseRequest(BaseModel):
     message: str
     context: List[Dict[str, str]] = []
+    use_retriever: bool = False
 
 class JSONOutput(BaseModel):
     analysis: str
@@ -26,6 +29,7 @@ class LoadFile(BaseModel):
 
 app = FastAPI(title=settings.APP_NAME)
 client = OpenAI(api_key=settings.AI_API_KEY, base_url="https://api.deepseek.com")
+retriever = SemanticRetriever(documents)
 
 # Основная функция для вызова ответа модели
 async def call_llm(context: list) -> JSONOutput:
@@ -66,6 +70,7 @@ async def get_response(payload: str = Form(...), file: UploadFile = File(None), 
     validate_key(backend_key)
     payload_dict = json.loads(payload)
     payload = BaseRequest(**payload_dict)
+    use_retriever = payload.use_retriever
 
     system_prompt = """
     <role>
@@ -137,6 +142,22 @@ async def get_response(payload: str = Form(...), file: UploadFile = File(None), 
             print(context)
         except Exception as e:
             raise HTTPException(status_code=400, detail=str(e))
+
+    # Сценарий, при котором используется ретривер
+    if use_retriever:
+        try:
+            retrieved_indices = retriever.retrieve_with_indices(payload.message, top_k=3)
+            retrieved_docs = [documents[i] for i in retrieved_indices]
+
+            retrieved_context = "\n".join(retrieved_docs)[:500]
+
+            context[0]["content"] += f"\nExternal knowledge (for reference only):\n{retrieved_context}\nIf external knowledge is provided, use it only if relevant."
+            print(f"[Retriever] Used for query: {payload.message}")
+            print(f"[Retriever] Retrieved docs: {retrieved_docs}")
+
+        except Exception as e:
+            print(f"Retriever error: {e}")
+
     try:
         result = await call_llm(context)
         return result
