@@ -110,6 +110,7 @@ async def get_response(payload: str = Form(...), file: UploadFile = File(None), 
     - Say it in one short sentence.
     - Return empty arrays [] for remove_features, transform_features and create_features.
     - recommended_models can stay empty or contain 1–2 general models only if the request is clearly about ML.
+    - If the user's question is related to ml, feature engineering or data handling, answer it accordingly.
     
     If the request is completely off-topic (not about ML, data or modeling):
     - Give a very short polite refusal (1–2 sentences max).
