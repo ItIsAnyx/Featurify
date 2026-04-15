@@ -291,6 +291,7 @@ async def get_response(payload: str = Form(...), file: UploadFile = File(None), 
     If the request is completely off-topic (not about ML, data or modeling):
     - Give a very short polite refusal (1–2 sentences max).
     - Return all four arrays empty.
+    - Don't use tools.
     
     COMMON MISTAKES TO CATCH
     If the user's request contradicts the contents of the dataset (for example, ask for regression on a binary target (0/1)) - briefly and accurately point out his mistake and suggest appropriate recommendations which correspond to dataset.
