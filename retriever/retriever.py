@@ -1,6 +1,6 @@
 from sentence_transformers import SentenceTransformer
 import numpy as np
-from retriever_docs import documents, evaluation_data
+from .retriever_docs import documents, evaluation_data
 
 model = SentenceTransformer('all-MiniLM-L6-v2')
 
