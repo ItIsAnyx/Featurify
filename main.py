@@ -1,13 +1,30 @@
 from fastapi import FastAPI, HTTPException, Header, UploadFile, File, Form
-from openai import OpenAI
+from openai import OpenAI, RateLimitError
 from config import settings, validate_key
 from pydantic import BaseModel
 from typing import List, Dict
 from dataset import read_dataset, info_to_str
 from retriever.retriever import SemanticRetriever
 from retriever.retriever_docs import documents
+from langfuse import get_client, observe
+import time
 import json
 import math
+import os
+import base64
+
+os.environ["LANGFUSE_HOST"] = "http://localhost:3000"
+os.environ["LANGFUSE_PUBLIC_KEY"] = settings.LANGFUSE_PUBLIC_KEY
+os.environ["LANGFUSE_SECRET_KEY"] = settings.LANGFUSE_SECRET_KEY
+
+os.environ["OTEL_EXPORTER_OTLP_ENDPOINT"] = "http://localhost:3000/api/public/otel"
+
+auth_string = base64.b64encode(
+    f"{settings.LANGFUSE_PUBLIC_KEY}:{settings.LANGFUSE_SECRET_KEY}".encode("utf-8")
+).decode("utf-8")
+os.environ["OTEL_EXPORTER_OTLP_HEADERS"] = f"Authorization=Basic {auth_string}"
+
+langfuse = get_client()
 
 class BaseRequest(BaseModel):
     message: str
@@ -29,7 +46,8 @@ class LoadFile(BaseModel):
     df_info: dict
 
 app = FastAPI(title=settings.APP_NAME)
-client = OpenAI(api_key=settings.AI_API_KEY, base_url="https://api.deepseek.com")
+client = OpenAI(api_key=settings.LITELLM_API_KEY, base_url="http://localhost:4000")
+langfuse = get_client()
 retriever = SemanticRetriever(documents)
 MAX_TOOL_CALLS = 3
 MAX_CONTEXT_MESSAGES = 9
@@ -138,14 +156,15 @@ tools = [
 ]
 
 # Основная функция для вызова ответа модели
+@observe(name="call-llm")
 async def call_llm(context: list, df=None) -> JSONOutput:
+    start_time = time.time()
     tool_calls_count = 0
 
     try:
         messages_count = len(context) - 1
         if messages_count > MAX_CONTEXT_MESSAGES:
             summary = summarize_context_llm(context)
-
             context = [context[0], {"role": "system", "content": f"Conversation summary:\n{summary}"}] + context[-2:]
 
         for _ in range(MAX_TOOL_CALLS):
@@ -156,50 +175,33 @@ async def call_llm(context: list, df=None) -> JSONOutput:
                 tool_choice="auto",
                 temperature=0.5
             )
-
             message = response.choices[0].message
+            usage = getattr(response, "usage", None)
 
             if not message.tool_calls:
                 break
 
             for tool_call in message.tool_calls:
                 tool_calls_count += 1
-
                 if tool_calls_count > MAX_TOOL_CALLS:
                     raise HTTPException(status_code=500, detail="Too many tool calls")
 
                 name = tool_call.function.name
                 args = json.loads(tool_call.function.arguments)
 
-                print(f"[Tool Call] {name} with args {args}")
-
                 if name == "retrieve_knowledge":
                     result = retrieve_knowledge(**args)
-
                 elif name == "get_dataset_rows":
                     result = get_dataset_rows(df, **args) if df is not None else "No dataset loaded"
-
                 else:
                     result = "Unknown tool"
 
                 context.append({
                     "role": "assistant",
-                    "tool_calls": [
-                        {
-                            "id": tool_call.id,
-                            "type": "function",
-                            "function": {
-                                "name": name,
-                                "arguments": json.dumps(args)
-                            }
-                        }
-                    ]
+                    "tool_calls": [{"id": tool_call.id, "type": "function",
+                                    "function": {"name": name, "arguments": json.dumps(args)}}]
                 })
-                context.append({
-                    "role": "tool",
-                    "tool_call_id": tool_call.id,
-                    "content": result
-                })
+                context.append({"role": "tool", "tool_call_id": tool_call.id, "content": result})
 
         response = client.chat.completions.create(
             model="deepseek-chat",
@@ -219,23 +221,27 @@ async def call_llm(context: list, df=None) -> JSONOutput:
             "completion_tokens": getattr(usage, "completion_tokens", 0),
             "total_tokens": getattr(usage, "total_tokens", 0)
         })
-        safe_context = []
 
+        # Подготовка контекста для ответа
+        safe_context = []
         for msg in context[1:]:
             safe_msg = {"role": msg["role"]}
-
             if "content" in msg:
                 safe_msg["content"] = msg["content"]
-
             elif "tool_calls" in msg:
                 safe_msg["content"] = json.dumps(msg["tool_calls"])
-
             safe_context.append(safe_msg)
 
         return JSONOutput(**parsed, context=safe_context)
 
+    except RateLimitError:
+        raise HTTPException(status_code=402, detail="LiteLLM budget exceeded")
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+    finally:
+        langfuse.flush()
 
 # Получение ответа на вопрос пользователя с контекстом
 @app.post("/api/response", response_model=JSONOutput)
@@ -323,6 +329,7 @@ async def get_response(payload: str = Form(...), file: UploadFile = File(None), 
 
     try:
         result = await call_llm(context, df)
+        langfuse.flush()
         return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Generation Error: {str(e)}")

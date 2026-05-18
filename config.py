@@ -4,7 +4,10 @@ from fastapi import HTTPException
 class Settings(BaseSettings):
     APP_NAME: str = "Featurify"
     BACKEND_KEY: str
-    AI_API_KEY: str
+    DEEPSEEK_API_KEY: str
+    LANGFUSE_SECRET_KEY: str
+    LANGFUSE_PUBLIC_KEY: str
+    LITELLM_API_KEY: str
 
     class Config():
         env_file = ".env"
