@@ -1,10 +1,14 @@
 import pandas as pd
 from fastapi import HTTPException
+from config import settings
 
 def read_dataset(file):
     try:
         df = pd.read_csv(file)
+        if len(df) > settings.MAX_ROWS:
+            raise HTTPException(status_code=400, detail=f"Too many rows. Max: {settings.MAX_ROWS}")
         return df
+
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 

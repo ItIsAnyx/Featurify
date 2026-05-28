@@ -1,0 +1,9 @@
+BACKEND_KEY=любой-многозначный-ключ
+DEEPSEEK_API_KEY=ключ-доступа-из-API-DeepSeek
+
+LANGFUSE_SECRET_KEY=секретный-ключ-после-сборки-контейнера-langfuse
+LANGFUSE_PUBLIC_KEY=публичныый-ключ-после-сборки-контейнера-langfuse
+LITELLM_API_KEY=секретный-ключ-после-сборки-контейнера-litellm
+
+MAX_FILE_SIZE_MB=10
+MAX_FILE_ROWS=1000000
