@@ -1,0 +1,158 @@
+services:
+
+  api-template:
+    build:
+      context: ./api-template
+    container_name: api-template
+
+    restart: unless-stopped
+
+    ports:
+      - "8000:8000"
+
+    environment:
+      - PYTHONUNBUFFERED=1
+
+    env_file:
+      - .env
+
+    depends_on:
+      - backend
+
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+
+  backend:
+    build:
+      context: ./backend
+    container_name: ml-backend
+
+    restart: unless-stopped
+
+    ports:
+      - "8001:8000"
+
+    env_file:
+      - .env
+
+    depends_on:
+      - litellm
+      - langfuse
+
+
+  litellm_db:
+    image: postgres:16
+    container_name: litellm_postgres
+
+    restart: unless-stopped
+
+    environment:
+      POSTGRES_USER: litellm
+      POSTGRES_PASSWORD: litellm
+      POSTGRES_DB: litellm
+
+    ports:
+      - "5434:5432"
+
+    volumes:
+      - litellm_pg_data:/var/lib/postgresql/data
+
+  litellm:
+    image: ghcr.io/berriai/litellm:main-stable
+    container_name: litellm
+
+    restart: unless-stopped
+
+    depends_on:
+      - litellm_db
+
+    ports:
+      - "4000:4000"
+
+    environment:
+      DATABASE_URL: postgresql://litellm:litellm@litellm_db:5432/litellm
+      LITELLM_MASTER_KEY: sk-master-key
+      STORE_MODEL_IN_DB: "True"
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
+
+    volumes:
+      - ./litellm_config.yaml:/etc/litellm/config.yaml
+
+    command:
+      - "--config"
+      - "/etc/litellm/config.yaml"
+      - "--port"
+      - "4000"
+
+
+
+  postgres:
+    image: postgres:16
+    container_name: langfuse_postgres
+
+    restart: unless-stopped
+
+    environment:
+      POSTGRES_USER: langfuse
+      POSTGRES_PASSWORD: langfuse
+      POSTGRES_DB: langfuse
+
+    ports:
+      - "5433:5432"
+
+
+  redis:
+    image: redis:7
+    container_name: langfuse_redis
+
+    restart: unless-stopped
+
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:24.3
+    container_name: langfuse_clickhouse
+
+    restart: unless-stopped
+
+    ports:
+      - "8123:8123"
+      - "9000:9000"
+
+    volumes:
+      - ./backend/clickhouse-config/default-user.xml:/etc/clickhouse-server/users.d/default-user.xml
+
+
+  langfuse:
+    image: langfuse/langfuse:2
+    container_name: langfuse
+
+    restart: unless-stopped
+
+    depends_on:
+      - postgres
+      - redis
+      - clickhouse
+
+    ports:
+      - "3000:3000"
+
+    environment:
+      DATABASE_URL: postgresql://langfuse:langfuse@postgres:5432/langfuse
+      CLICKHOUSE_URL: http://clickhouse:8123
+      CLICKHOUSE_MIGRATION_URL: clickhouse://clickhouse:9000
+      REDIS_HOST: redis
+
+      NEXTAUTH_SECRET: super-secret-key
+      NEXTAUTH_URL: http://localhost:3000
+      SALT: another-secret-key
+
+      TELEMETRY_ENABLED: "false"
+
+
+volumes:
+  litellm_pg_data:

@@ -8,3 +8,8 @@ test_request.py
 autotest_data/attack_datasets/
 autotest_data/attack_cases.csv
 synthetic_dataset.csv
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/

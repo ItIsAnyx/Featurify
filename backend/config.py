@@ -9,6 +9,7 @@ class Settings(BaseSettings):
     LANGFUSE_PUBLIC_KEY: str
     LITELLM_API_KEY: str
 
+    MAX_REQUEST_LENGTH: int = 2000
     MAX_FILE_SIZE_MB: int = 10
     MAX_FILE_ROWS: int = 1_000_000
 

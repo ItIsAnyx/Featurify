@@ -13,7 +13,7 @@ import math
 import os
 import base64
 
-os.environ["LANGFUSE_HOST"] = "http://localhost:3000"
+os.environ["LANGFUSE_HOST"] = "http://litellm:4000"
 os.environ["LANGFUSE_PUBLIC_KEY"] = settings.LANGFUSE_PUBLIC_KEY
 os.environ["LANGFUSE_SECRET_KEY"] = settings.LANGFUSE_SECRET_KEY
 
@@ -46,7 +46,7 @@ class LoadFile(BaseModel):
     df_info: dict
 
 app = FastAPI(title=settings.APP_NAME)
-client = OpenAI(api_key=settings.LITELLM_API_KEY, base_url="http://localhost:4000")
+client = OpenAI(api_key=settings.LITELLM_API_KEY, base_url="http://litellm:4000")
 langfuse = get_client()
 retriever = SemanticRetriever(documents)
 MAX_TOOL_CALLS = 3
@@ -244,6 +244,7 @@ async def call_llm(context: list, df=None) -> JSONOutput:
         content = response.choices[0].message.content
         content = content.replace("```json", "").replace("```", "")
         parsed = json.loads(content)
+        context.append({"role": "assistant", "content": parsed.get("analysis", "")})
 
         usage = getattr(response, "usage", None)
 
@@ -283,7 +284,7 @@ async def get_response(payload: str = Form(...), file: UploadFile = File(None), 
 
     payload_dict = json.loads(payload)
     payload = BaseRequest(**payload_dict)
-    if len(payload.message) > 2000:
+    if len(payload.message) > settings.MAX_REQUEST_LENGTH:
         raise HTTPException(status_code=400, detail="Request too long")
 
     df = None
