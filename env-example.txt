@@ -5,5 +5,17 @@ LANGFUSE_SECRET_KEY=секретный-ключ-после-сборки-конт
 LANGFUSE_PUBLIC_KEY=публичныый-ключ-после-сборки-контейнера-langfuse
 LITELLM_API_KEY=секретный-ключ-после-сборки-контейнера-litellm
 
+MAX_REQUEST_LENGTH=2000
 MAX_FILE_SIZE_MB=10
 MAX_FILE_ROWS=1000000
+
+LITELLM_POSTGRES_USER=user
+LITELLM_POSTGRES_PASSWORD=secret
+LITELLM_POSTGRES_DB=db
+
+LANGFUSE_POSTGRES_USER=user
+LANGFUSE_POSTGRES_PASSWORD=secret
+LANGFUSE_POSTGRES_DB=db
+
+NEXTAUTH_SECRET=secret
+SALT=secret

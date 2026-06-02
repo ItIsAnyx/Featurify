@@ -13,6 +13,17 @@ class Settings(BaseSettings):
     MAX_FILE_SIZE_MB: int = 10
     MAX_FILE_ROWS: int = 1_000_000
 
+    LITELLM_POSTGRES_USER: str
+    LITELLM_POSTGRES_PASSWORD: str
+    LITELLM_POSTGRES_DB: str
+
+    LANGFUSE_POSTGRES_USER: str
+    LANGFUSE_POSTGRES_PASSWORD: str
+    LANGFUSE_POSTGRES_DB: str
+
+    NEXTAUTH_SECRET: str
+    SALT: str
+
     class Config():
         env_file = ".env"
         case_sensitive = True
@@ -20,7 +31,5 @@ class Settings(BaseSettings):
 settings = Settings()
 
 def validate_key(backend_key: str):
-    if not backend_key:
-        raise HTTPException(status_code=401, detail="Server misconfiguration: BACKEND_KEY is not set")
     if backend_key != settings.BACKEND_KEY:
         raise HTTPException(status_code=403, detail="Forbidden: BACKEND_KEY is invalid")
