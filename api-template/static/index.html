@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Featurify</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <!-- ===================== LOGIN ===================== -->
+  <main id="login-view" class="login-view">
+    <div class="login-card">
+      <div class="brand">
+        <span class="brand-mark">◆</span>
+        <h1>Featurify</h1>
+      </div>
+      <p class="login-sub">Feature-engineering &amp; model recommendations for your datasets.</p>
+      <form id="login-form" autocomplete="off">
+        <label for="key-input">Access key</label>
+        <input id="key-input" type="password" placeholder="paste your demo key" spellcheck="false" />
+        <button type="submit" id="login-btn">Enter</button>
+        <p id="login-error" class="error" hidden></p>
+      </form>
+      <p class="login-foot">Each key represents one demo user. Chats and context are kept separate per key.</p>
+    </div>
+  </main>
+
+  <!-- ===================== APP ===================== -->
+  <div id="app-view" class="app-view" hidden>
+    <aside class="sidebar">
+      <div class="sidebar-top">
+        <div class="brand small">
+          <span class="brand-mark">◆</span>
+          <span>Featurify</span>
+        </div>
+        <button id="new-chat-btn" class="new-chat" title="New chat">+ New chat</button>
+      </div>
+      <nav id="chat-list" class="chat-list"></nav>
+      <div class="sidebar-foot">
+        <span id="user-label" class="user-label"></span>
+        <button id="logout-btn" class="logout" title="Sign out">Sign out</button>
+      </div>
+    </aside>
+
+    <section class="main">
+      <header class="chat-header">
+        <h2 id="chat-title">—</h2>
+        <span id="dataset-chip" class="dataset-chip" hidden></span>
+      </header>
+
+      <div id="messages" class="messages">
+        <div id="empty-state" class="empty-state">
+          <span class="brand-mark big">◆</span>
+          <p>Start a conversation. Attach a CSV to get feature-engineering advice grounded in your data.</p>
+        </div>
+      </div>
+
+      <form id="composer" class="composer">
+        <div id="attached-file" class="attached-file" hidden>
+          <span id="attached-name"></span>
+          <button type="button" id="clear-file" aria-label="Remove file">×</button>
+        </div>
+        <div class="composer-row">
+          <label class="attach-btn" title="Attach CSV">
+            <input id="file-input" type="file" accept=".csv" hidden />
+            <span>＋</span>
+          </label>
+          <textarea id="message-input" rows="1" placeholder="Ask about features, transformations, models…"></textarea>
+          <button type="submit" id="send-btn" class="send-btn">Send</button>
+        </div>
+        <p id="composer-error" class="error" hidden></p>
+      </form>
+    </section>
+  </div>
+
+  <script src="/app.js"></script>
+</body>
+</html>

@@ -60,7 +60,7 @@ def retrieve_knowledge(query: str, top_k: int = 3) -> str:
     docs = [documents[i] for i in indices]
     return "\n".join(docs)
 
-# Чтобы убрать лишнюю информацию из вызова инструментов
+# Leave only user and assistant messages
 def prepare_messages_for_summary(context: list) -> str:
     prepared = []
 
@@ -206,83 +206,114 @@ tools = [
     }
 ]
 
-# Основная функция для вызова ответа модели
+# Main func for model calling
 @observe(name="call-llm")
 async def call_llm(context: list, df=None) -> JSONOutput:
-    tool_calls_count = 0
+    tool_calls_used = 0
 
     try:
         messages_count = len(context) - 1
         if messages_count > MAX_CONTEXT_MESSAGES:
             summary = await summarize_context_llm(context)
-            context = [context[0], {"role": "assistant", "content": f"Last conversation summary:\n{summary}"}] + context[-2:]
+            context = [context[0],
+                       {"role": "assistant", "content": f"Last conversation summary:\n{summary}"}] + context[-2:]
 
-        for _ in range(MAX_TOOL_CALLS):
+        while tool_calls_used < MAX_TOOL_CALLS:
             response = await asyncio.to_thread(
                 client.chat.completions.create,
                 model="deepseek-chat",
                 messages=context,
                 tools=tools,
                 tool_choice="auto",
-                temperature=0.5
+                temperature=0.5,
             )
             message = response.choices[0].message
 
             if not message.tool_calls:
-                break
+                break  # model is ready to answer
+
+            context.append({
+                "role": "assistant",
+                "content": message.content or "",
+                "tool_calls": [
+                    {
+                        "id": tc.id,
+                        "type": "function",
+                        "function": {"name": tc.function.name, "arguments": tc.function.arguments},
+                    }
+                    for tc in message.tool_calls
+                ],
+            })
 
             for tool_call in message.tool_calls:
-                tool_calls_count += 1
-                if tool_calls_count > MAX_TOOL_CALLS:
-                    raise HTTPException(status_code=500, detail="Too many tool calls")
-
                 name = tool_call.function.name
-                args = json.loads(tool_call.function.arguments)
+                try:
+                    args = json.loads(tool_call.function.arguments)
+                except json.JSONDecodeError:
+                    args = {}
 
-                if name == "retrieve_knowledge":
-                    result = retrieve_knowledge(**args)
-                elif name == "get_dataset_rows":
-                    result = get_dataset_rows(df, **args) if df is not None else "No dataset loaded"
+                if tool_calls_used >= MAX_TOOL_CALLS:
+                    result = "Tool-call limit reached. Answer using the information already gathered."
                 else:
-                    result = "Unknown tool"
+                    if name == "retrieve_knowledge":
+                        result = retrieve_knowledge(**args)
+                    elif name == "get_dataset_rows":
+                        result = get_dataset_rows(df, **args) if df is not None else "No dataset loaded"
+                    else:
+                        result = "Unknown tool"
+                    tool_calls_used += 1
 
                 context.append({
-                    "role": "assistant",
-                    "tool_calls": [{"id": tool_call.id, "type": "function",
-                                    "function": {"name": name, "arguments": json.dumps(args)}}]
+                    "role": "tool",
+                    "tool_call_id": tool_call.id,
+                    "content": result if isinstance(result, str) else json.dumps(result),
                 })
-                context.append({"role": "tool", "tool_call_id": tool_call.id, "content": result})
 
+        # Final structured answer — no tools offered, so the model must respond.
         response = await asyncio.to_thread(
             client.chat.completions.create,
             model="deepseek-chat",
             messages=context,
             temperature=0.5,
-            response_format={"type": "json_object"}
+            response_format={"type": "json_object"},
         )
 
-        content = response.choices[0].message.content
-        content = content.replace("```json", "").replace("```", "")
-        parsed = json.loads(content)
+        content = response.choices[0].message.content or ""
+        content = content.replace("```json", "").replace("```", "").strip()
+
+        parsed = None
+        brace = content.find("{")
+        if brace != -1:
+            try:
+                parsed, _ = json.JSONDecoder().raw_decode(content[brace:])
+            except json.JSONDecodeError:
+                parsed = None
+        if not isinstance(parsed, dict):
+            parsed = {"analysis": content}
+
+        parsed.pop("context", None)
+        parsed.setdefault("analysis", "")
+        for _key in ("remove_features", "transform_features",
+                     "create_features", "recommended_models"):
+            _val = parsed.get(_key)
+            parsed[_key] = _val if isinstance(_val, list) else []
+
         context.append({"role": "assistant", "content": parsed.get("analysis", "")})
 
         usage = getattr(response, "usage", None)
-
         parsed.update({
             "prompt_tokens": getattr(usage, "prompt_tokens", 0),
             "completion_tokens": getattr(usage, "completion_tokens", 0),
-            "total_tokens": getattr(usage, "total_tokens", 0)
+            "total_tokens": getattr(usage, "total_tokens", 0),
         })
 
-        # Подготовка контекста для ответа
+        # Preparing context for the answer
         safe_context = []
         for msg in context[1:]:
             if msg["role"] == "tool":
                 safe_context.append({"role": "tool", "content": msg["content"][:1500]})
-
             elif msg["role"] == "assistant" and "content" in msg:
                 safe_context.append({"role": "assistant", "content": msg["content"]})
-
             elif msg["role"] == "user":
                 safe_context.append({"role": "user", "content": msg["content"]})
 
@@ -297,7 +328,8 @@ async def call_llm(context: list, df=None) -> JSONOutput:
     finally:
         langfuse.flush()
 
-# Получение ответа на вопрос пользователя с контекстом
+
+# Main endpoint to take a response from model
 @app.post("/api/response", response_model=JSONOutput)
 async def get_response(payload: str = Form(...), file: UploadFile = File(None), backend_key: str = Header(..., alias="BACKEND_KEY")) -> JSONOutput:
     validate_key(backend_key)

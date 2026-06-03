@@ -16,6 +16,9 @@ services:
     env_file:
       - .env
 
+    volumes:
+      - api_data:/data
+
     depends_on:
       - backend
 
@@ -160,3 +163,4 @@ services:
 volumes:
   litellm_pg_data:
   langfuse_pg_data:
+  api_data:
