@@ -40,7 +40,7 @@ class LoadFile(BaseModel):
     df_info: dict
 
 app = FastAPI(title=settings.APP_NAME)
-client = OpenAI(api_key=(settings.LITELLM_VIRTUAL_KEY or settings.LITELLM_API_KEY), base_url="http://litellm:4000",)
+client = OpenAI(api_key=(settings.LITELLM_VIRTUAL_KEY or settings.LITELLM_API_KEY), base_url="http://litellm:4000")
 retriever = SemanticRetriever(documents)
 MAX_TOOL_CALLS = 3
 MAX_CONTEXT_MESSAGES = 9
