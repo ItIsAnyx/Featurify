@@ -12,6 +12,7 @@ import json
 import math
 import os
 import asyncio
+import re
 
 os.environ["LANGFUSE_HOST"] = "http://langfuse:3000"
 os.environ["LANGFUSE_PUBLIC_KEY"] = settings.LANGFUSE_PUBLIC_KEY
@@ -39,7 +40,7 @@ class LoadFile(BaseModel):
     df_info: dict
 
 app = FastAPI(title=settings.APP_NAME)
-client = OpenAI(api_key=settings.LITELLM_API_KEY, base_url="http://litellm:4000")
+client = OpenAI(api_key=(settings.LITELLM_VIRTUAL_KEY or settings.LITELLM_API_KEY), base_url="http://litellm:4000",)
 retriever = SemanticRetriever(documents)
 MAX_TOOL_CALLS = 3
 MAX_CONTEXT_MESSAGES = 9
@@ -171,6 +172,45 @@ async def check_loading_file(file: UploadFile) -> None:
     if file_size > MAX_FILE_SIZE:
         raise HTTPException(status_code=400, detail=f"File too large. Max size: {settings.MAX_FILE_SIZE_MB} MB")
 
+
+_EMPTY_LISTS = ("remove_features", "transform_features",
+                "create_features", "recommended_models")
+
+
+def _normalize_lists(d: dict) -> dict:
+    out = {}
+    for k in _EMPTY_LISTS:
+        v = d.get(k)
+        out[k] = v if isinstance(v, list) else []
+    return out
+
+# Split the model's text answer from an optional trailing feature-list block.
+def split_answer_and_lists(content: str):
+    content = content or ""
+    block = None
+    span = None
+
+    m = re.search(r"```\s*json\s*(\{.*\})\s*```", content, re.IGNORECASE | re.DOTALL)
+    if m:
+        block, span = m.group(1), m.span()
+    else:
+        m2 = re.search(r"(\{[^{}]*remove_features.*?\})\s*$", content, re.DOTALL)
+        if m2:
+            block, span = m2.group(1), m2.span()
+
+    lists = _normalize_lists({})
+    if block is not None:
+        try:
+            data = json.loads(block)
+            if isinstance(data, dict):
+                lists = _normalize_lists(data)
+                content = content[:span[0]] + content[span[1]:]
+        except json.JSONDecodeError:
+            pass
+
+    return content.strip(), lists
+
+
 tools = [
     {
         "type": "function",
@@ -218,6 +258,8 @@ async def call_llm(context: list, df=None) -> JSONOutput:
             context = [context[0],
                        {"role": "assistant", "content": f"Last conversation summary:\n{summary}"}] + context[-2:]
 
+        response = None
+        final_content = None
         while tool_calls_used < MAX_TOOL_CALLS:
             response = await asyncio.to_thread(
                 client.chat.completions.create,
@@ -225,12 +267,13 @@ async def call_llm(context: list, df=None) -> JSONOutput:
                 messages=context,
                 tools=tools,
                 tool_choice="auto",
-                temperature=0.5,
+                temperature=0.4,
             )
             message = response.choices[0].message
 
             if not message.tool_calls:
-                break  # model is ready to answer
+                final_content = message.content or ""
+                break
 
             context.append({
                 "role": "assistant",
@@ -269,36 +312,21 @@ async def call_llm(context: list, df=None) -> JSONOutput:
                     "content": result if isinstance(result, str) else json.dumps(result),
                 })
 
-        # Final structured answer — no tools offered, so the model must respond.
-        response = await asyncio.to_thread(
-            client.chat.completions.create,
-            model="deepseek-chat",
-            messages=context,
-            temperature=0.5,
-            response_format={"type": "json_object"},
-        )
+        if final_content is None:
+            response = await asyncio.to_thread(
+                client.chat.completions.create,
+                model="deepseek-chat",
+                messages=context,
+                temperature=0.4,
+            )
+            final_content = response.choices[0].message.content or ""
 
-        content = response.choices[0].message.content or ""
-        content = content.replace("```json", "").replace("```", "").strip()
+        analysis, lists = split_answer_and_lists(final_content)
+        if not analysis.strip():
+            analysis = "I couldn't produce an answer for that. Could you rephrase your request?"
 
-        parsed = None
-        brace = content.find("{")
-        if brace != -1:
-            try:
-                parsed, _ = json.JSONDecoder().raw_decode(content[brace:])
-            except json.JSONDecodeError:
-                parsed = None
-        if not isinstance(parsed, dict):
-            parsed = {"analysis": content}
-
-        parsed.pop("context", None)
-        parsed.setdefault("analysis", "")
-        for _key in ("remove_features", "transform_features",
-                     "create_features", "recommended_models"):
-            _val = parsed.get(_key)
-            parsed[_key] = _val if isinstance(_val, list) else []
-
-        context.append({"role": "assistant", "content": parsed.get("analysis", "")})
+        parsed = {"analysis": analysis, **lists}
+        context.append({"role": "assistant", "content": analysis})
 
         usage = getattr(response, "usage", None)
         parsed.update({
@@ -312,7 +340,7 @@ async def call_llm(context: list, df=None) -> JSONOutput:
         for msg in context[1:]:
             if msg["role"] == "tool":
                 safe_context.append({"role": "tool", "content": msg["content"][:1500]})
-            elif msg["role"] == "assistant" and "content" in msg:
+            elif msg["role"] == "assistant" and msg.get("content"):
                 safe_context.append({"role": "assistant", "content": msg["content"]})
             elif msg["role"] == "user":
                 safe_context.append({"role": "user", "content": msg["content"]})
@@ -323,6 +351,11 @@ async def call_llm(context: list, df=None) -> JSONOutput:
         raise HTTPException(status_code=402, detail="LiteLLM budget exceeded")
 
     except Exception as e:
+
+        msg = str(e).lower()
+        if "budget" in msg or "exceeded" in msg:
+            raise HTTPException(status_code=402, detail="LiteLLM budget exceeded")
+
         raise HTTPException(status_code=500, detail=str(e))
 
     finally:

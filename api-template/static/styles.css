@@ -201,7 +201,34 @@ button { font-family: inherit; cursor: pointer; }
   background: var(--bg-raise); border: 1px solid var(--line);
   border-radius: var(--radius); padding: 16px 18px;
 }
-.analysis { white-space: pre-wrap; }
+.analysis { line-height: 1.55; }
+.analysis p { margin: 0 0 10px; }
+.analysis p:last-child, .analysis > :last-child { margin-bottom: 0; }
+.analysis strong { font-weight: 600; color: var(--ink); }
+.analysis em { font-style: italic; }
+.analysis ul, .analysis ol { margin: 6px 0 12px; padding-left: 22px; }
+.analysis li { margin: 3px 0; }
+.analysis h1, .analysis h2, .analysis h3, .analysis h4 {
+  font-family: var(--display); font-weight: 600; line-height: 1.25; margin: 14px 0 8px;
+}
+.analysis h1 { font-size: 19px; }
+.analysis h2 { font-size: 17px; }
+.analysis h3 { font-size: 15.5px; }
+.analysis h4 { font-size: 14.5px; }
+.analysis code {
+  font-family: var(--mono); font-size: 12.5px;
+  background: var(--bg-soft); border: 1px solid var(--line);
+  border-radius: 5px; padding: 1px 5px;
+}
+.analysis pre.code {
+  background: var(--bg); border: 1px solid var(--line);
+  border-radius: 10px; padding: 12px 14px; margin: 10px 0; overflow-x: auto;
+}
+.analysis pre.code code {
+  background: none; border: none; padding: 0;
+  font-size: 12.5px; line-height: 1.5; white-space: pre;
+}
+.analysis a { color: var(--accent); text-decoration: underline; }
 .file-tag {
   display: inline-block; margin-top: 8px;
   font-family: var(--mono); font-size: 11px; color: var(--accent);

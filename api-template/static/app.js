@@ -192,6 +192,67 @@ function scrollToBottom() {
   els.messages.scrollTop = els.messages.scrollHeight;
 }
 
+// --------------------------------------------------------------------------
+// Minimal, XSS-safe Markdown renderer.
+// HTML is escaped FIRST, then a small set of Markdown tokens are turned into
+// safe tags — so model output (which can echo user text) can never inject HTML.
+// Supports: # headings, **bold**, *italic*, `code`, ```code blocks```,
+// - / * bullet lists, 1. numbered lists, [text](url) links.
+// --------------------------------------------------------------------------
+function escapeHtml(s) {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+function renderInline(s) {
+  const codes = [];
+  s = s.replace(/`([^`]+)`/g, (m, c) => { codes.push(c); return "\u0001C" + (codes.length - 1) + "\u0001"; });
+  s = s.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+  s = s.replace(/\*([^*\n]+)\*/g, "<em>$1</em>");
+  s = s.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+  s = s.replace(/\u0001C(\d+)\u0001/g, (m, i) => "<code>" + codes[Number(i)] + "</code>");
+  return s;
+}
+
+function renderMarkdown(src) {
+  const text = String(src || "");
+
+  // Protect fenced code blocks before escaping the rest.
+  const blocks = [];
+  let t = text.replace(/```(\w*)\n?([\s\S]*?)```/g, (m, lang, code) => {
+    blocks.push('<pre class="code"><code>' + escapeHtml(code.replace(/\n$/, "")) + "</code></pre>");
+    return "\u0000B" + (blocks.length - 1) + "\u0000";
+  });
+
+  t = escapeHtml(t);
+
+  const lines = t.split(/\r?\n/);
+  let html = "";
+  let listType = null;
+  let para = [];
+
+  const flushPara = () => {
+    if (para.length) { html += "<p>" + para.map(renderInline).join("<br>") + "</p>"; para = []; }
+  };
+  const closeList = () => { if (listType) { html += "</" + listType + ">"; listType = null; } };
+
+  for (const line of lines) {
+    if (/^\u0000B\d+\u0000$/.test(line.trim())) {
+      flushPara(); closeList(); html += line.trim(); continue;
+    }
+    const h = line.match(/^(#{1,4})\s+(.*)$/);
+    if (h) { flushPara(); closeList(); const l = h[1].length; html += "<h" + l + ">" + renderInline(h[2]) + "</h" + l + ">"; continue; }
+    const ul = line.match(/^\s*[-*]\s+(.*)$/);
+    const ol = line.match(/^\s*\d+\.\s+(.*)$/);
+    if (ul) { flushPara(); if (listType !== "ul") { closeList(); html += "<ul>"; listType = "ul"; } html += "<li>" + renderInline(ul[1]) + "</li>"; continue; }
+    if (ol) { flushPara(); if (listType !== "ol") { closeList(); html += "<ol>"; listType = "ol"; } html += "<li>" + renderInline(ol[1]) + "</li>"; continue; }
+    if (line.trim() === "") { flushPara(); closeList(); continue; }
+    para.push(line.trim());
+  }
+  flushPara(); closeList();
+
+  return html.replace(/\u0000B(\d+)\u0000/g, (m, i) => blocks[Number(i)]);
+}
+
 function appendMessage(m, fileName) {
   const empty = els.messages.querySelector(".empty-state");
   if (empty) empty.remove();
@@ -218,7 +279,11 @@ function appendMessage(m, fileName) {
   } else {
     const analysis = document.createElement("div");
     analysis.className = "analysis";
-    analysis.textContent = m.content || "(no analysis returned)";
+    if (m.content && m.content.trim()) {
+      analysis.innerHTML = renderMarkdown(m.content);
+    } else {
+      analysis.textContent = "(no analysis returned)";
+    }
     bubble.appendChild(analysis);
     renderStructured(bubble, m.data);
   }
